@@ -1,0 +1,5 @@
+# Robots.txt for ALIZA
+User-agent: *
+Allow: /
+
+Sitemap: https://aliza.pk/sitemap.xml
