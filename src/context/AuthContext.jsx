@@ -1,11 +1,18 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 const AuthContext = createContext();
-const adminEmails = (import.meta.env.VITE_ADMIN_EMAILS || "")
-  .split(",")
-  .map((email) => email.trim().toLowerCase())
-  .filter(Boolean);
+
+const getAdminEmails = () => {
+  try {
+    return (import.meta.env.VITE_ADMIN_EMAILS || "")
+      .split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+};
 
 const loadUserFromStorage = () => {
   try {
@@ -13,11 +20,7 @@ const loadUserFromStorage = () => {
     if (!saved) return null;
     const parsed = JSON.parse(saved);
     if (!parsed) return null;
-    if (typeof parsed.isAdmin === "boolean") return parsed;
-    return {
-      ...parsed,
-      isAdmin: adminEmails.includes((parsed.email || "").toLowerCase()),
-    };
+    return parsed;
   } catch {
     return null;
   }
@@ -26,7 +29,12 @@ const loadUserFromStorage = () => {
 const saveUserToStorage = (user) => {
   try {
     if (user) {
-      localStorage.setItem("aliza-user", JSON.stringify(user));
+      const adminEmails = getAdminEmails();
+      const userWithAdmin = {
+        ...user,
+        isAdmin: user.isAdmin || adminEmails.includes((user.email || "").toLowerCase()),
+      };
+      localStorage.setItem("aliza-user", JSON.stringify(userWithAdmin));
     } else {
       localStorage.removeItem("aliza-user");
     }
@@ -37,6 +45,7 @@ const saveUserToStorage = (user) => {
 
 const mapSupabaseUser = (supabaseUser) => {
   if (!supabaseUser) return null;
+  const adminEmails = getAdminEmails();
   const email = supabaseUser.email || "";
   const emailMatch = adminEmails.includes(email.toLowerCase());
   const metadataAdmin = supabaseUser.user_metadata?.is_admin === true;
@@ -58,62 +67,54 @@ export const AuthProvider = ({ children }) => {
   const [authLoading, setAuthLoading] = useState(false);
 
   useEffect(() => {
-    const bootstrap = async () => {
-      try {
-        const localUser = loadUserFromStorage();
-        
-        if (!isSupabaseConfigured || !supabase) {
-          setUser(localUser);
+    let isMounted = true;
+
+    const initAuth = async () => {
+      const savedUser = loadUserFromStorage();
+      
+      if (!isSupabaseConfigured || !supabase) {
+        if (isMounted) {
+          setUser(savedUser);
           setLoading(false);
-          return;
         }
+        return;
+      }
 
-        try {
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error("timeout")), 3000)
-          );
-
-          const sessionPromise = supabase.auth.getSession();
-          
-          const result = await Promise.race([sessionPromise, timeoutPromise]);
-          const data = result && typeof result === 'object' ? result : null;
-
+      try {
+        const { data } = await supabase.auth.getSession();
+        
+        if (isMounted) {
           if (data?.session?.user) {
             const supabaseUser = mapSupabaseUser(data.session.user);
             setUser(supabaseUser);
             saveUserToStorage(supabaseUser);
-          } else if (localUser) {
-            setUser(localUser);
+          } else if (savedUser) {
+            setUser(savedUser);
           }
-        } catch (sessionError) {
-          console.warn("Supabase session error:", sessionError);
-          if (localUser) {
-            setUser(localUser);
-          }
+          setLoading(false);
         }
       } catch (error) {
-        console.error("Auth bootstrap error:", error);
+        console.warn("Auth init error:", error);
+        if (isMounted) {
+          setUser(savedUser);
+          setLoading(false);
+        }
       }
-      setLoading(false);
     };
 
-    bootstrap();
+    initAuth();
 
     if (isSupabaseConfigured && supabase) {
-      let isMounted = true;
-      
-      const {
-        data: { subscription },
-      } = supabase.auth.onAuthStateChange((_event, session) => {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
         if (!isMounted) return;
         
-        if (session?.user) {
-          const mappedUser = mapSupabaseUser(session.user);
-          setUser(mappedUser);
-          saveUserToStorage(mappedUser);
-        } else {
-          const localUser = loadUserFromStorage();
-          setUser(localUser);
+        if (event === "SIGNED_IN" && session?.user) {
+          const supabaseUser = mapSupabaseUser(session.user);
+          setUser(supabaseUser);
+          saveUserToStorage(supabaseUser);
+        } else if (event === "SIGNED_OUT") {
+          setUser(null);
+          saveUserToStorage(null);
         }
       });
 
@@ -121,84 +122,87 @@ export const AuthProvider = ({ children }) => {
         isMounted = false;
         subscription.unsubscribe();
       };
+    } else {
+      isMounted = false;
     }
   }, []);
 
-  const login = async (email, password) => {
+  const login = useCallback(async (email, password) => {
     setAuthLoading(true);
-    if (!isSupabaseConfigured || !supabase) {
-      const mockUser = {
-        id: 1,
-        name: "Demo User",
-        email,
-        isAdmin: adminEmails.includes(email.toLowerCase()),
-      };
-      setUser(mockUser);
-      saveUserToStorage(mockUser);
-      setAuthLoading(false);
+    try {
+      if (!isSupabaseConfigured || !supabase) {
+        const adminEmails = getAdminEmails();
+        const mockUser = {
+          id: Date.now(),
+          name: email.split("@")[0],
+          email,
+          isAdmin: adminEmails.includes(email.toLowerCase()),
+        };
+        setUser(mockUser);
+        saveUserToStorage(mockUser);
+        return { success: true };
+      }
+
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) return { success: false, error: error.message };
+
+      const mappedUser = mapSupabaseUser(data.user);
+      setUser(mappedUser);
+      saveUserToStorage(mappedUser);
       return { success: true };
-    }
-
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
+    } finally {
       setAuthLoading(false);
-      return { success: false, error: error.message };
     }
+  }, []);
 
-    const mappedUser = mapSupabaseUser(data.user);
-    setUser(mappedUser);
-    saveUserToStorage(mappedUser);
-    setAuthLoading(false);
-    return { success: true };
-  };
-
-  const register = async (name, email, password) => {
+  const register = useCallback(async (name, email, password) => {
     setAuthLoading(true);
-    if (!isSupabaseConfigured || !supabase) {
-      const newUser = {
-        id: Date.now(),
-        name,
+    try {
+      if (!isSupabaseConfigured || !supabase) {
+        const adminEmails = getAdminEmails();
+        const newUser = {
+          id: Date.now(),
+          name,
+          email,
+          isAdmin: adminEmails.includes(email.toLowerCase()),
+        };
+        setUser(newUser);
+        saveUserToStorage(newUser);
+        return { success: true };
+      }
+
+      const { data, error } = await supabase.auth.signUp({
         email,
-        isAdmin: adminEmails.includes(email.toLowerCase()),
-      };
-      setUser(newUser);
-      saveUserToStorage(newUser);
-      setAuthLoading(false);
+        password,
+        options: { data: { name } },
+      });
+
+      if (error) return { success: false, error: error.message };
+
+      const mappedUser = mapSupabaseUser(data.user);
+      setUser(mappedUser);
+      saveUserToStorage(mappedUser);
       return { success: true };
-    }
-
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { name } },
-    });
-
-    if (error) {
+    } finally {
       setAuthLoading(false);
-      return { success: false, error: error.message };
     }
+  }, []);
 
-    const mappedUser = mapSupabaseUser(data.user);
-    setUser(mappedUser);
-    saveUserToStorage(mappedUser);
-    setAuthLoading(false);
-    return { success: true };
-  };
-
-  const logout = async () => {
+  const logout = useCallback(async () => {
     if (isSupabaseConfigured && supabase) {
-      await supabase.auth.signOut();
+      try {
+        await supabase.auth.signOut();
+      } catch (e) {
+        console.warn("Signout error:", e);
+      }
     }
     setUser(null);
     saveUserToStorage(null);
-  };
+  }, []);
 
-  const resendVerificationEmail = async (email) => {
+  const resendVerificationEmail = useCallback(async (email) => {
     if (!email) return { success: false, error: "Email is required." };
-
-    if (!isSupabaseConfigured || !supabase) {
-      return { success: true };
-    }
+    if (!isSupabaseConfigured || !supabase) return { success: true };
 
     const { error } = await supabase.auth.resend({
       type: "signup",
@@ -207,25 +211,22 @@ export const AuthProvider = ({ children }) => {
 
     if (error) return { success: false, error: error.message };
     return { success: true };
+  }, []);
+
+  const value = {
+    user,
+    login,
+    register,
+    logout,
+    resendVerificationEmail,
+    isAuthenticated: !!user,
+    isAdmin: !!user?.isAdmin,
+    loading,
+    authLoading,
   };
 
-  const isAuthenticated = !!user;
-  const isAdmin = !!user?.isAdmin;
-
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        login,
-        register,
-        logout,
-        resendVerificationEmail,
-        isAuthenticated,
-        isAdmin,
-        loading,
-        authLoading,
-      }}
-    >
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

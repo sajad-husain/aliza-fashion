@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { FiMail, FiLock, FiEye, FiEyeOff } from "react-icons/fi";
+import { FiMail, FiLock, FiEye, FiEyeOff, FiLoader } from "react-icons/fi";
 import { useAuth } from "../context/AuthContext";
 
 const LoginPage = () => {
@@ -72,6 +72,7 @@ const LoginPage = () => {
                   value={formData.email}
                   onChange={handleChange}
                   placeholder="your@email.com"
+                  disabled={authLoading}
                 />
               </div>
             </div>
@@ -87,11 +88,13 @@ const LoginPage = () => {
                   value={formData.password}
                   onChange={handleChange}
                   placeholder="Enter your password"
+                  disabled={authLoading}
                 />
                 <button
                   type="button"
                   className="password-toggle"
                   onClick={() => setShowPassword(!showPassword)}
+                  disabled={authLoading}
                 >
                   {showPassword ? <FiEyeOff size={18} /> : <FiEye size={18} />}
                 </button>
@@ -99,14 +102,20 @@ const LoginPage = () => {
             </div>
 
             <button type="submit" className="btn btn-primary btn-full" disabled={authLoading}>
-              {authLoading ? "Signing In..." : "Sign In"}
+              {authLoading ? (
+                <>
+                  <FiLoader className="spinner" size={18} /> Signing In...
+                </>
+              ) : (
+                "Sign In"
+              )}
             </button>
             {isEmailNotConfirmed && (
               <button
                 type="button"
                 className="btn btn-secondary btn-full resend-btn"
                 onClick={handleResendVerification}
-                disabled={isResending || !formData.email}
+                disabled={isResending || !formData.email || authLoading}
               >
                 {isResending ? "Sending..." : "Resend Verification Email"}
               </button>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { FiMail, FiLock, FiUser, FiEye, FiEyeOff } from "react-icons/fi";
+import { FiMail, FiLock, FiUser, FiEye, FiEyeOff, FiLoader } from "react-icons/fi";
 import { useAuth } from "../context/AuthContext";
 
 const RegisterPage = () => {
@@ -52,6 +52,7 @@ const RegisterPage = () => {
                   value={formData.name}
                   onChange={handleChange}
                   placeholder="Your full name"
+                  disabled={authLoading}
                 />
               </div>
             </div>
@@ -67,6 +68,7 @@ const RegisterPage = () => {
                   value={formData.email}
                   onChange={handleChange}
                   placeholder="your@email.com"
+                  disabled={authLoading}
                 />
               </div>
             </div>
@@ -82,11 +84,13 @@ const RegisterPage = () => {
                   value={formData.password}
                   onChange={handleChange}
                   placeholder="Create a password"
+                  disabled={authLoading}
                 />
                 <button
                   type="button"
                   className="password-toggle"
                   onClick={() => setShowPassword(!showPassword)}
+                  disabled={authLoading}
                 >
                   {showPassword ? <FiEyeOff size={18} /> : <FiEye size={18} />}
                 </button>
@@ -94,7 +98,13 @@ const RegisterPage = () => {
             </div>
 
             <button type="submit" className="btn btn-primary btn-full" disabled={authLoading}>
-              {authLoading ? "Creating Account..." : "Create Account"}
+              {authLoading ? (
+                <>
+                  <FiLoader className="spinner" size={18} /> Creating Account...
+                </>
+              ) : (
+                "Create Account"
+              )}
             </button>
           </form>
 

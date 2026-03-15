@@ -147,6 +147,19 @@ h2 {
   background: #219a52 !important;
 }
 
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .navbar {
   position: sticky;
   top: 0;
