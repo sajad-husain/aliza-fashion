@@ -39,32 +39,38 @@ export const ProductsProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const hasLoadedRef = useRef(false);
 
-  const loadProducts = async () => {
-    if (!isSupabaseConfigured || !supabase) return;
+    const loadProducts = async () => {
+      if (!isSupabaseConfigured || !supabase) return;
 
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error("timeout")), 3000)
-    );
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("timeout")), 3000)
+      );
 
-    try {
-      const fetchPromise = supabase
-        .from("products")
-        .select("*")
-        .order("id", { ascending: true });
+      try {
+        const fetchPromise = supabase
+          .from("products")
+          .select("*")
+          .order("id", { ascending: true });
 
-      const result = await Promise.race([fetchPromise, timeoutPromise]);
-      const data = result && typeof result === 'object' ? result.data : null;
-      const error = result && typeof result === 'object' ? result.error : null;
+        const result = await Promise.race([fetchPromise, timeoutPromise]);
+        
+        // Check if result is an error (from timeout) or a successful response
+        if (result instanceof Error) {
+          console.warn("Products load timeout:", result.message);
+          return;
+        }
+        
+        const { data, error } = result;
+        
+        if (error || !data || data.length === 0) return;
 
-      if (error || !data || data.length === 0) return;
-
-      const normalized = data.map(normalizeProduct);
-      setProducts(normalized);
-      setCategories(deriveCategories(normalized));
-    } catch (err) {
-      console.warn("Products load error:", err);
-    }
-  };
+        const normalized = data.map(normalizeProduct);
+        setProducts(normalized);
+        setCategories(deriveCategories(normalized));
+      } catch (err) {
+        console.warn("Products load error:", err);
+      }
+    };
 
   const refreshProducts = async () => {
     setLoading(true);
